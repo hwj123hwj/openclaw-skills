@@ -1,6 +1,6 @@
 ---
 name: feishu-doc-create-and-grant
-description: 创建飞书云文档、写入内容，并同步授予指定用户（主人）管理权限。Use when user asks to: create a Feishu/Lark document, generate a report and save it to cloud, create a document and share it with someone, or "帮我建个飞书文档""创建云文档并授权给我"。
+description: "创建飞书云文档、写入内容，并同步授予指定用户（主人）管理权限。Use when user asks to: create a Feishu/Lark document, generate a report and save it to cloud, create a document and share it with someone, or '帮我建个飞书文档' '创建云文档并授权给我'。"
 allowed-tools: Bash(curl:*)
 ---
 
