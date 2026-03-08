@@ -1,7 +1,6 @@
 ---
 name: feishu-doc-create-and-grant
-description: "创建飞书云文档、写入内容，并同步授予指定用户（主人）管理权限。Use when user asks to: create a Feishu/Lark document, generate a report and save it to cloud, create a document and share it with someone, or '帮我建个飞书文档' '创建云文档并授权给我'。"
-allowed-tools: Bash(curl:*)
+description: "创建飞书云文档、写入内容，并同步授予指定用户（主人）管理权限。Use when user asks to: create a Feishu/Lark document, generate a report and save it to cloud, create a document and share it with someone, or '帮我建个飞书文档' '创建云文档并授权给我'。App ID 和 App Secret 自动从配置读取。"
 ---
 
 # feishu-doc-create-and-grant
@@ -10,22 +9,23 @@ allowed-tools: Bash(curl:*)
 
 ## 前提条件
 
-1. 飞书自建应用已开通以下 **Tenant token** 权限：
+1. **飞书 App ID / Secret**：自动从系统配置（如 `openclaw.json`）中读取，无需用户提供。
+2. 飞书自建应用已开通以下 **Tenant token** 权限：
    - `docx:document:create` — 创建文档
    - `docx:document:write_only` — 写入内容
    - `drive:drive` — 云盘操作（含权限管理）
-2. 已知主人的飞书 Open ID（格式：`ou_xxxxxxxxxxxxxxxxx`）
-3. 持有 App ID 和 App Secret
+3. 已知主人的飞书 Open ID（格式：`ou_xxxxxxxxxxxxxxxxx`）
 
 ## 核心流程
 
 ### Step 1：获取 tenant_access_token
 
 ```bash
+# $APP_ID 和 $APP_SECRET 自动从配置获取
 TOKEN=$(curl -s -X POST \
   "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
   -H "Content-Type: application/json" \
-  -d '{"app_id":"YOUR_APP_ID","app_secret":"YOUR_APP_SECRET"}' \
+  -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin).get('tenant_access_token', ''))")
 ```
 
@@ -67,8 +67,6 @@ curl -s -X POST \
   }'
 ```
 
-> ⚠️ **注意**：`text` 内部必须包含 `elements` 数组，且文本内容需放在 `text_run.content` 中。Block 类型说明见 [references/block-types.md](references/block-types.md)。
-
 ### Step 4：授权给主人 (full_access)
 
 ```bash
@@ -76,12 +74,12 @@ curl -s -X POST \
   "https://open.feishu.cn/open-apis/drive/v1/permissions/$DOC_ID/members?type=docx" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "member_type": "openid",
-    "member_id": "ou_xxxxxxxxxxxxxxxx",
-    "perm": "full_access",
-    "perm_type": "container"
-  }'
+  -d "{
+    \"member_type\": \"openid\",
+    \"member_id\": \"$OWNER_OPEN_ID\",
+    \"perm\": \"full_access\",
+    \"perm_type\": \"container\"
+  }"
 ```
 
 > ⚠️ `type=docx` 必须作为 Query Parameter 传递。
@@ -98,6 +96,4 @@ https://bytedance.larkoffice.com/docx/{DOC_ID}
 |--------|------|------|
 | 99991672 | 权限未开通 | 确认应用已发布并包含 drive:drive 等权限 |
 | 1770001 | 参数格式错误 | 确认 type=docx 在 URL 查询参数中 |
-| 99991663 | Token 过期 | 重新调用 Step 1 获取 Token |
-
-完整脚本见 [references/scripts/create_and_grant.sh](references/scripts/create_and_grant.sh)。
+| 99991663 | Token 过期 | 重新获取 Token |
