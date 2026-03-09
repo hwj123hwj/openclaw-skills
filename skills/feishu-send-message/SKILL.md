@@ -20,6 +20,88 @@ description: 通过飞书 API 向指定用户或群组发送消息。Use when us
 
 - **接收方的 ID**（open_id / user_id / union_id / email / chat_id 之一）
 
+## 如何获取接收方 ID（优化版决策树）
+
+### 发给用户（open_id）
+
+用户只提供姓名时，按以下**优先级**处理：
+
+```
+只有姓名，没有 ID？
+    ↓
+1. 查本地缓存（memory/contacts.md）
+    ↓ 找到了？→ 直接用，零延迟
+    没找到？
+    ↓
+2. 消息 mentions 里有这个人吗？
+    ↓ 是 → 直接从 mentions[].id 取（零成本）
+    否
+    ↓
+3. 当前是群聊吗？
+    ↓ 是 → 调用 /chats/{chat_id}/members 获取群成员列表
+         → 查询用户信息补全姓名 → 缓存到本地
+    否
+    ↓
+4. 用户提供了邮箱/手机号？
+    ↓ 是 → 调用 batch_get_id 精确查询
+    否
+    ↓
+5. 读取并执行 feishu-contacts 技能，按部门树递归搜索姓名
+    ↓
+    搜到了 → 拿到 open_id，缓存到本地，继续发消息
+    搜不到 → 问用户要 open_id 或手机号/邮箱
+```
+
+> ⚠️ **常见误区**：`contact:user.id:readonly` 的用途是「通过手机号或邮箱查 open_id」，不是按姓名搜索。按姓名查人要用 feishu-contacts 技能的「按部门树递归搜索」方案。
+
+### 缓存联系人信息
+
+找到联系人后，自动保存到 `memory/contacts.md`：
+
+```markdown
+| 姓名 | open_id | 来源 | 更新时间 |
+|------|---------|------|----------|
+| 张三 | ou_xxx | 群聊 oc_xxx | 2025-03-09 |
+```
+
+### 获取群成员列表（快速方案）
+
+在群聊中发消息时，优先使用此 API：
+
+```bash
+# 1. 获取群成员 open_id 列表
+curl -s -G "https://open.feishu.cn/open-apis/im/v1/chats/{chat_id}/members" \
+    --data-urlencode "member_id_type=open_id" \
+    --data-urlencode "page_size=100" \
+    -H "Authorization: Bearer $TOKEN"
+
+# 2. 查询用户信息获取姓名
+curl -s -G "https://open.feishu.cn/open-apis/contact/v3/users/{open_id}" \
+    --data-urlencode "user_id_type=open_id" \
+    -H "Authorization: Bearer $TOKEN"
+```
+
+需要权限：`im:chat:readonly` 和 `contact:user.base:readonly`
+
+### 发给群组（chat_id）
+
+用户只提供群名时，调用以下 API 搜索群：
+
+```bash
+curl -s -G "https://open.feishu.cn/open-apis/im/v1/chats" \
+  --data-urlencode "search_key=群名关键词" \
+  --data-urlencode "page_size=20" \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for c in d.get('data',{}).get('items',[]):
+    print(c['chat_id'], c['name'])
+"
+```
+
+需要权限 `im:chat:readonly`。找到 chat_id 后，发消息时 `receive_id_type=chat_id`。
+
 ## 核心流程
 
 ### Step 1 — 获取 tenant_access_token
@@ -104,28 +186,13 @@ FILE_KEY=$(curl -s -X POST \
 
 ## 处理 230013：Bot 对目标用户不可用
 
-遇到 230013 时，**不要让用户手动操作**，直接通过 API 把目标用户加入 Bot 可用范围，然后重试发送。
+遇到 230013 时，告知用户：
 
-### Step A — 调用「更新应用可用范围」API
+「Bot 目前对该用户不可用，需要您在飞书开放平台发布新版本时扩大可见范围：
 
-```bash
-curl -s -X PATCH \
-  "https://open.feishu.cn/open-apis/application/v6/applications/$APP_ID/visibility?user_id_type=open_id" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json; charset=utf-8" \
-  -d "{\"add_visible_list\":{\"user_ids\":[\"$RECEIVER_ID\"]}}" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['code'], d.get('msg',''))"
-```
+1. 前往 https://open.feishu.cn/app → 选择 Bot 应用 → Version Management & Release
+2. 创建新版本
+3. 在「Availability」（可用范围）中，添加目标用户，或改为「全员可用」
+4. 发布版本后告知我继续」
 
-- 成功返回 `code: 0` → 直接重试发消息
-- 返回 `99991672` 缺少 `admin:app.visibility` 权限 → 执行 Step B
-
-### Step B — 开通 admin:app.visibility 权限
-
-缺少 `admin:app.visibility` 权限时：
-
-1. 向用户询问：「需要开通 `admin:app.visibility` 权限才能自动添加用户，有两种方式：A. 帮我自动开通（需扫码一次）；B. 我自己去设置。请选择？」
-2. **用户选 A** → 读取并执行 `feishu-permission-setup` 技能开通权限，完成后重新执行 Step A，再重试发消息
-3. **用户选 B** → 引导用户前往 https://open.feishu.cn/app → 权限管理 → 搜索 `admin:app.visibility` → 开通 → 发布新版本，完成后告知我继续
-
-> 💡 `admin:app.visibility` 是免审核权限，开通后无需等待审核，发布新版本即刻生效。
+> 💡 可见范围设置必须通过发布新版本才能生效，无法通过 API 直接修改（需要管理员权限）。
