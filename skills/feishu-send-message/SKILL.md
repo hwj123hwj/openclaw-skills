@@ -17,6 +17,7 @@ description: 通过飞书 API 向指定用户或群组发送消息。Use when us
 > 1. 从错误响应的 `msg` 字段提取缺少的权限名
 > 2. 向用户询问：「检测到应用缺少权限 `[权限名]`，有两种处理方式：A. 帮我自动开通（推荐，需扫码一次）；B. 我自己去设置。请选择？」
 > 3. **用户选 A** → 读取并执行 `feishu-permission-setup` 技能，完成后重新调用原 API
+> 4. **用户选 B** → 回复：「请前往 https://open.feishu.cn/app → 权限管理 → 搜索 `[权限名]` → 开通 → 发布新版本，完成后告知我继续。」
 
 - **接收方的 ID**（open_id / user_id / union_id / email / chat_id 之一）
 
@@ -186,7 +187,37 @@ FILE_KEY=$(curl -s -X POST \
 
 ## 处理 230013：Bot 对目标用户不可用
 
-遇到 230013 时，告知用户：
+遇到 230013 时，**优先尝试通过 API 自动解决**，无需用户手动操作：
+
+### 自动处理方案（推荐）
+
+直接调用「更新应用可用范围」API 把目标用户加入 Bot 可见范围，然后重试发送：
+
+```bash
+curl -s -X PATCH \
+  "https://open.feishu.cn/open-apis/application/v6/applications/$APP_ID/visibility?user_id_type=open_id" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d "{\"add_visible_list\":{\"user_ids\":[\"$RECEIVER_ID\"]}}" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['code'], d.get('msg',''))"
+```
+
+- **成功返回 `code: 0`** → 直接重试发消息
+- **返回 `99991672` 缺少 `admin:app.visibility` 权限** → 执行下方权限开通流程
+
+### 权限开通流程
+
+缺少 `admin:app.visibility` 权限时：
+
+1. 向用户询问：「需要开通 `admin:app.visibility` 权限才能自动添加用户，有两种方式：A. 帮我自动开通（需扫码一次）；B. 我自己去设置。请选择？」
+2. **用户选 A** → 读取并执行 `feishu-permission-setup` 技能开通权限，完成后重新执行自动处理方案，再重试发消息
+3. **用户选 B** → 引导用户前往 https://open.feishu.cn/app → 权限管理 → 搜索 `admin:app.visibility` → 开通 → 发布新版本，完成后告知我继续
+
+> 💡 `admin:app.visibility` 是免审核权限，开通后无需等待审核，发布新版本即刻生效。
+
+### 手动处理方案（备用）
+
+如果自动处理失败或用户选择手动操作，告知用户：
 
 「Bot 目前对该用户不可用，需要您在飞书开放平台发布新版本时扩大可见范围：
 
@@ -194,5 +225,3 @@ FILE_KEY=$(curl -s -X POST \
 2. 创建新版本
 3. 在「Availability」（可用范围）中，添加目标用户，或改为「全员可用」
 4. 发布版本后告知我继续」
-
-> 💡 可见范围设置必须通过发布新版本才能生效，无法通过 API 直接修改（需要管理员权限）。
