@@ -1,125 +1,150 @@
 ---
 name: feishu-permission-setup
-description: 通过浏览器自动化为飞书自建应用申请并发布新的 Tenant token 权限，解锁飞书 API 能力（如云文档创建、编辑等）。Use when: (1) a Feishu API call fails with error code 99991672 (permission denied / 应用尚未开通所需的应用身份权限), (2) user asks to enable/add a Feishu app permission or scope, (3) user asks why a Feishu API is returning a permission error. Requires one human QR code scan for login (human-in-the-loop). After permissions are granted, can also create and write Feishu documents via API.
+description: |
+  通过浏览器自动化为飞书自建应用申请并发布 Tenant token 权限。如果浏览器 session 已登录且未超时，全程自动完成；否则需要人工扫码一次。
+  触发场景：
+  - 飞书 API 返回错误码 99991672（权限不足）
+  - 用户说「开通飞书权限」「申请飞书文档权限」「为什么 API 没有权限」
+  - 需要给飞书应用添加新的 API scope
+  前置条件：需持有飞书 App 的管理员权限，需要能使用浏览器工具。
+
 ---
 
-# feishu-permission-setup
+# 飞书权限开通（浏览器自动化）
 
-通过浏览器自动化操控飞书开放平台，完成权限申请与版本发布，从而解锁飞书 API 能力。
+通过浏览器自动化操控飞书开放平台，完成权限申请与版本发布。
 
-> ⚠️ 飞书开放平台强制二维码扫码登录，无账号密码接口。**唯一需要人介入的步骤**：截图二维码发给管理员扫码。
-
-## 触发场景
-
-- 飞书 API 返回错误码 `99991672`
-- 用户说「开通飞书 XXX 权限」「给飞书 App 申请文档读写权限」
-- 「为什么我的 API 没有权限」
-
-## 前置条件
-
-1. 持有目标飞书 App 的 Owner 或 Administrator 权限
-2. 已安装 `agent-browser`（或使用 `browser` 工具）
-3. 已知目标 App ID（`YOUR_APP_ID`）
-4. 从 API 报错 `msg` 中提取需要开通的权限名称（如 `docx:document:create`）
+**优先检查 session 状态**：先查看浏览器当前 tabs。如果已有 `open.feishu.cn/app/` 页面且标题包含 Developer Console，说明登录 session 有效，**跳过扫码直接从 Step 3 开始**。只有在被重定向到登录页时才需要人工扫码。
 
 ## 核心流程
 
-### Step 1：从报错精准定位权限名
+共 6 步。只有 session 过期时 Step 2 才需要人工介入，其余全自动。
 
-直接调用目标 API，从错误响应中提取缺少的权限：
+---
+
+### Step 1：从 API 报错提取所需权限
+
+直接调用目标飞书 API。如果缺权限，响应中会明确告知：
 
 ```
 错误码: 99991672
 msg: 应用尚未开通所需的应用身份权限：[docx:document:create]
-→ 提取: SCOPE="docx:document:create"
 ```
 
-### Step 2：打开飞书开放平台，截图二维码发给管理员
+**提取方括号内的权限名**，如 `docx:document:create`。这比猜测权限名高效得多。
 
-```bash
-agent-browser open "https://open.feishu.cn/app/YOUR_APP_ID/auth"
-agent-browser screenshot /tmp/qr.png
-# 通过飞书消息 API 上传图片并发送给管理员
-curl -X POST https://open.feishu.cn/open-apis/im/v1/images \
-  -H "Authorization: Bearer {tenant_access_token}" \
-  -F "image_type=message" -F "image=@/tmp/qr.png"
-# 发送图片消息给管理员，等待扫码完成
-```
+如果用户已经知道要开什么权限，跳过此步。
 
-扫码完成后，管理员确认即可继续。
+---
+
+### Step 2：（仅 session 失效时）浏览器打开登录页 + 人工扫码
+
+如果 Step 1 之前检查 tabs 发现已登录，**跳过此步**。
+
+飞书开放平台强制扫码登录，无法绕过。
+
+1. 用浏览器工具打开飞书开放平台登录页：
+
+   ```
+   https://open.feishu.cn/app/{APP_ID}/auth
+   ```
+
+   > `{APP_ID}` 替换为实际的飞书应用 ID（如 `cli_xxxx`）。如果不知道，问用户。
+
+2. 页面会显示二维码。**截图发给用户**，请用户用飞书 App 扫码。
+
+3. **等待用户确认扫码完成**，然后用浏览器确认页面已跳转到权限管理页（URL 应包含 `/auth`）。
+
+> ⚠️ 这是整个流程中**唯一需要人工介入**的步骤。
+
+---
 
 ### Step 3：在 Tenant token scopes 标签页添加权限
 
-> ⚠️ 关键：**必须在「Tenant token scopes」标签页**添加，而非「User token scopes」
+登录成功后，应该已经在权限管理页面。
 
-```bash
-# 确认已登录并在权限页
-agent-browser get url
+**关键：必须在「Tenant token scopes」标签页下操作，不是 User token scopes。**
 
-# 点击 Add permission scopes to app
-agent-browser snapshot -i | grep "Add permission"
-agent-browser click @eXX
+- Tenant token = 应用自身身份，后台 API 调用用这个
+- User token = 代表用户身份，两者不可混用
 
-# 关闭说明弹窗（如有）
-agent-browser find text "Got It" click 2>/dev/null || true
+操作步骤：
 
-# 在搜索框输入权限名
-agent-browser snapshot -i | grep textbox
-agent-browser click @eXX      # 搜索框
-agent-browser fill @eXX "$SCOPE"
+1. **关闭可能出现的说明弹窗**：查找 "Got It" 按钮并点击（如果存在）
+2. **点击 "Add permission scopes to app"** 按钮
+3. **确认在 "Tenant token scopes" 标签页下**（如果不是，点击切换）
+4. **在搜索框中输入权限名**（如 `docx:document:create`）
+5. **勾选搜索结果中的对应权限**
+6. **点击 "Add Scopes"** 按钮确认
 
-# 勾选 Tenant token 版本的权限 → 点击 Add Scopes
-agent-browser check @eXX
-agent-browser eval "document.querySelectorAll('button').find(b=>b.textContent.trim()==='Add Scopes')?.click()"
-```
+如果需要添加多个权限，重复步骤 2-6。
+
+> 💡 也可以使用「Batch import/export scopes」一次性添加多个权限（JSON 格式）。
+
+---
 
 ### Step 4：发布新版本使权限生效
 
-权限变更**必须发布新版本**才生效，不是实时的。
+**权限变更不会实时生效，必须发布新版本。**
 
-```bash
-# 点击 Create Version
-agent-browser eval "document.querySelectorAll('button').find(b=>b.textContent.trim()==='Create Version')?.click()"
+1. 页面顶部应有黄色提示条，点击 **"Create Version"**
+2. 填写版本号（如 `1.0.1`）和版本说明（如 `Add docx:document:create`）
+3. 点击 **"Save"**
+4. 点击 **"Publish"**
 
-# 填写版本号和说明（React 输入框需用原生 setter）
-agent-browser eval "
-(() => {
-  const iS = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  const tS = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-  const v = document.querySelectorAll('input')[0];
-  const t = document.querySelector('textarea');
-  iS.call(v, '1.0.1');
-  v.dispatchEvent(new Event('input',{bubbles:true}));
-  tS.call(t, 'Add $SCOPE');
-  t.dispatchEvent(new Event('input',{bubbles:true}));
-})()
-"
+> ⚠️ React 输入框注意事项：如果普通 fill/type 无法输入，需用原生 setter 注入：
+>
+> ```javascript
+> (() => {
+> const iS = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+> const tS = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+> const v = document.querySelectorAll('input')[0];
+> const t = document.querySelector('textarea');
+> iS.call(v, '版本号');
+> v.dispatchEvent(new Event('input', {bubbles: true}));
+> tS.call(t, '版本说明');
+> t.dispatchEvent(new Event('input', {bubbles: true}));
+> })()
+> ```
 
-# Save → Publish
-agent-browser eval "document.querySelectorAll('button')[6].click()"  # Save
-agent-browser eval "document.querySelectorAll('button').find(b=>b.textContent.trim()==='Publish')?.click()"
-```
+企业内部 App 通常无需管理员审核，Publish 后立即 Released。
 
-企业内部 App 通常无需审核，Publish 后立即 Released。
+---
 
 ### Step 5：验证权限
 
-重新调用之前失败的 API，确认不再返回 `99991672` 错误。
+重新调用 Step 1 中失败的 API，确认不再返回 99991672 错误。
 
-## 关键注意事项
+如果仍然报错：
 
-- **Tenant vs User token 不可混用**：用 `tenant_access_token` 调用的 API 必须开 Tenant token 类型权限
-- **批量开通**：可用「Batch import/export scopes」一次性添加多个权限（JSON 格式）
-- **版本发布延迟**：权限变更必须发布新版本才生效
-- **session 超时**：操作前先 `agent-browser get url` 确认 session 有效
-- **React 输入框**：版本号和说明的 input 需要用原生 setter 注入，不能直接赋值
+- 确认添加的是 **Tenant token** 而非 User token 类型的权限
+- 确认版本已发布成功（状态为 Released）
+- 等待几秒后重试（极少数情况有短暂延迟）
 
-## 飞书文档相关 Tenant token 权限速查
+---
 
-| 权限名 | 说明 |
-|--------|------|
-| `docx:document:create` | 创建文档 |
-| `docx:document:write_only` | 写入/编辑内容 |
-| `docx:document:readonly` | 读取文档内容 |
+### Step 6：告知用户结果
 
-详细的文档操作 API 和 Block 类型速查，参见 [references/feishu-doc-api.md](references/feishu-doc-api.md)
+权限开通成功后，告知用户：
+
+- 已添加的权限列表
+- 发布的版本号
+- 现在可以使用的 API 能力
+
+---
+
+## 常用飞书 Tenant token 权限速查
+
+| 权限                       | 用途              |
+| -------------------------- | ----------------- |
+| `docx:document:create`     | 创建文档          |
+| `docx:document:write_only` | 写入/编辑文档内容 |
+| `docx:document:readonly`   | 读取文档内容      |
+| `drive:drive`              | 云盘操作          |
+| `im:message:send_as_bot`   | 机器人发送消息    |
+
+## 注意事项
+
+- **浏览器 session 会超时**：每次操作前先确认当前 URL，如果被踢回登录页需重新扫码
+- **一个 scope 对应一种能力**：不确定需要哪些 scope 时，先调 API 让飞书告诉你
+- **此流程可推广**：同样的浏览器自动化 + 人工扫码模式适用于其他 Web 控制台（云平台、SaaS 设置等）
