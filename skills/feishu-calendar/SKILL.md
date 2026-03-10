@@ -17,7 +17,7 @@ allowed-tools: Bash(curl:*)
 - `calendar:calendar` — 管理日历和日程
 - `calendar:calendar:readonly` — 只读日历
 
-> ⚠️ 权限未开通时返回 `99991672`，执行 `feishu-permission-setup` 技能自动开通。
+> ⚠️ 权限未开通时返回 `99991672`，提示用户：「检测到应用缺少权限，请前往 https://open.feishu.cn/app → 权限管理 → 搜索对应权限名 → 开通 → 发布新版本，完成后告知我继续。」
 
 ---
 

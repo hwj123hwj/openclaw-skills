@@ -112,7 +112,7 @@ curl -s -X GET \
 
 | 错误码 | 原因 | 解决 |
 |--------|------|------|
-| 99991672 | `im:chat` 或 `im:chat.members` 权限未开通 | 用 `feishu-permission-setup` 技能开通并发布新版本 |
+| 99991672 | `im:chat` 或 `im:chat.members` 权限未开通 | 前往 https://open.feishu.cn/app → 权限管理 → 搜索对应权限名 → 开通 → 发布新版本 |
 | 1300007 | `chat_id` 不存在 | 确认群 ID 正确，或重新获取群列表 |
 | 用户添加失败 | `open_id` 无效 | 确认 `user_id_list` 中的 Open ID 有效 |
 
