@@ -14,6 +14,9 @@ description: "创建飞书云文档、写入内容，并同步授予指定用户
    - `docx:document:create` — 创建文档
    - `docx:document:write_only` — 写入内容
    - `drive:drive` — 云盘操作（含权限管理）
+
+> ⚠️ 以上权限**默认未开通**。若调用时返回错误码 `99991672`，从错误响应的 `msg` 字段提取缺少的权限名，提示用户：「检测到应用缺少权限 `[权限名]`，请前往 https://open.feishu.cn/app → 权限管理 → 搜索 `[权限名]` → 开通 → 发布新版本，完成后告知我继续。」
+
 3. 已知主人的飞书 Open ID（格式：`ou_xxxxxxxxxxxxxxxxx`）
 
 ## 核心流程
@@ -94,7 +97,7 @@ https://bytedance.larkoffice.com/docx/{DOC_ID}
 
 | 错误码 | 原因 | 解决 |
 |--------|------|------|
-| 99991672 | 权限未开通 | 确认应用已发布并包含 drive:drive 等权限 |
+| 99991672 | 权限未开通 | 前往 https://open.feishu.cn/app → 权限管理 → 搜索对应权限名 → 开通 → 发布新版本 |
 | 1770001 | 参数格式错误 | 确认 type=docx 在 URL 查询参数中 |
 <<<<<<< HEAD
 | 99991663 | Token 过期 | 重新获取 Token |
