@@ -99,7 +99,6 @@ https://bytedance.larkoffice.com/docx/{DOC_ID}
 |--------|------|------|
 | 99991672 | 权限未开通 | 前往 https://open.feishu.cn/app → 权限管理 → 搜索对应权限名 → 开通 → 发布新版本 |
 | 1770001 | 参数格式错误 | 确认 type=docx 在 URL 查询参数中 |
-<<<<<<< HEAD
 | 99991663 | Token 过期 | 重新获取 Token |
 
 ## 参考资料
